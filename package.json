@@ -1,0 +1,34 @@
+{
+  "name": "automation",
+  "version": "1.0.0",
+  "description": "Playwright QA automation for load testing live webinar platform with 2,000+ concurrent attendees",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:chaos": "playwright test tests/chaos_bot_pom.spec.js",
+    "test:debug": "playwright test --debug",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "postinstall": "playwright install"
+  },
+  "keywords": [
+    "playwright",
+    "automation",
+    "load-testing",
+    "webinar"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^25.2.3"
+  },
+  "dependencies": {
+    "@playwright/mcp": "^0.0.68",
+    "pdf-parse": "^2.4.5"
+  }
+}

@@ -1,0 +1,19 @@
+version: '3.9'
+
+services:
+  playwright-bots:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: automation-playwright:1.43.0
+    environment:
+      CONTAINER_ID: ${CONTAINER_ID:-1}
+      BOT_COUNT: ${BOT_COUNT:-40}
+      PLAYWRIGHT_WORKERS: ${PLAYWRIGHT_WORKERS:-40}
+      CI: "true"
+    command: ["npx", "playwright", "test", "tests/chaos_bot_pom.spec.js"]
+    shm_size: "1gb"
+    volumes:
+      - ./test-results:/app/test-results
+      - ./playwright-report:/app/playwright-report
+    restart: "no"

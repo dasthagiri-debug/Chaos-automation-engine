@@ -1,0 +1,10 @@
+node_modules
+playwright-report
+test-results
+.git
+.github
+.vscode
+.playwright-mcp
+*.log
+npm-debug.log*
+README*.md
