@@ -129,7 +129,7 @@ Total ~$15 for complete load test (rough estimate, verify current pricing)
 
 Use environment variables to tune concurrency without changing code.
 
-Docker run example:
+Docker run example for local validation:
 
 ```bash
 docker run --rm \
@@ -139,15 +139,19 @@ docker run --rm \
   automation:latest
 ```
 
-Docker Compose example:
+ECS deployment example:
 
-```bash
-BOT_COUNT=30 PLAYWRIGHT_WORKERS=24 CONTAINER_ID=102 docker compose up --build playwright-bots
+```json
+{
+  "name": "CONTAINER_ID",
+  "value": "102"
+}
 ```
 
 Recommended guidance:
 - Keep `PLAYWRIGHT_WORKERS` less than or equal to `BOT_COUNT`.
 - Start with `BOT_COUNT=40` and `PLAYWRIGHT_WORKERS=40` for Fargate performance validation.
+- Launch ECS tasks with unique `CONTAINER_ID` values per task.
 - Reduce workers first if you observe OOM or CPU throttling.
 
 ---
