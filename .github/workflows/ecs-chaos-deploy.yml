@@ -1,7 +1,12 @@
 name: ECS Chaos (Playwright) Deploy
 
 on:
-  workflow_dispatch:   # Manual run only
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Attendee webinar URL (BASE_URL passed to each task)'
+        required: true
+        type: string
 
 permissions:
   id-token: write
@@ -56,7 +61,7 @@ jobs:
                       { \"name\": \"BOT_COUNT\",          \"value\": \"40\" },
                       { \"name\": \"PLAYWRIGHT_WORKERS\", \"value\": \"40\" },
                       { \"name\": \"CHAOS_SMOKE_MODE\",   \"value\": \"false\" },
-                      { \"name\": \"BASE_URL\",           \"value\": \"https://dasta133.easywebinar.live/live-event-153\" }
+                      { \"name\": \"BASE_URL\",           \"value\": \"${{ github.event.inputs.base_url }}\" }
                     ]
                   }
                 ]

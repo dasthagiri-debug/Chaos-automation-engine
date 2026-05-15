@@ -17,7 +17,10 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
         const containerId = process.env.CONTAINER_ID || Math.floor(Math.random() * 90000) + 10000;
         const botName = `Bot ${containerId}-${i}`;
         const botEmail = `bot${containerId}_${i}@test.com`;
-        const attendeeUrl = 'https://dasta133.easywebinar.live/live-event-153';
+        const attendeeUrl = process.env.BASE_URL;
+        if (!attendeeUrl) {
+            throw new Error('BASE_URL env var is required (attendee webinar URL).');
+        }
         
         const webinar = new WebinarRoom(page);
         let isJoined = false;
