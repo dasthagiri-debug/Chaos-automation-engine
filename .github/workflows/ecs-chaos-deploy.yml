@@ -1,0 +1,67 @@
+name: ECS Chaos (Playwright) Deploy
+
+on:
+  workflow_dispatch:   # Manual run only
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::286882951540:role/GitHubActionsOIDCRole
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image
+        run: |
+          ECR_REGISTRY="$(aws sts get-caller-identity --query 'Account' --output text).dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+          IMAGE_URI="$ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:latest"
+          echo "Image URI: $IMAGE_URI"
+          docker build --no-cache -t "$IMAGE_URI" -f ./Dockerfile .
+          docker push "$IMAGE_URI"
+
+      - name: Run ECS Standalone Tasks (1 task = 40 bots)
+        run: |
+          total_tasks=1
+          batch_size=1
+          batches=$(( total_tasks / batch_size ))
+
+          for i in $(seq 1 $batches); do
+            echo "Launching task $i with CONTAINER_ID=$i ..."
+
+            aws ecs run-task \
+              --cluster ${{ secrets.ECS_CLUSTER }} \
+              --launch-type FARGATE \
+              --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.ECS_SUBNET }}],securityGroups=[${{ secrets.ECS_SECURITY_GROUP }}],assignPublicIp=ENABLED}" \
+              --task-definition ${{ secrets.ECS_TASK_FAMILY }} \
+              --count $batch_size \
+              --overrides "{
+                \"containerOverrides\": [
+                  {
+                    \"name\": \"ew-playwright-chaos\",
+                    \"environment\": [
+                      { \"name\": \"CONTAINER_ID\",       \"value\": \"$i\" },
+                      { \"name\": \"BOT_COUNT\",          \"value\": \"40\" },
+                      { \"name\": \"PLAYWRIGHT_WORKERS\", \"value\": \"40\" },
+                      { \"name\": \"CHAOS_SMOKE_MODE\",   \"value\": \"false\" },
+                      { \"name\": \"BASE_URL\",           \"value\": \"https://dasta133.easywebinar.live/live-event-153\" }
+                    ]
+                  }
+                ]
+              }"
+
+            echo "Task $i submitted."
+            sleep 5
+          done
