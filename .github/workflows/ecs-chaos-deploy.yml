@@ -39,7 +39,7 @@ jobs:
 
       - name: Run ECS Standalone Tasks (1 task = 40 bots)
         run: |
-          total_tasks=10
+          total_tasks=1
           batch_size=1
           batches=$(( total_tasks / batch_size ))
 
