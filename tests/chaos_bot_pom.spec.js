@@ -45,9 +45,9 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
             isJoined = true;
             console.log(`[${botName}] Successfully joined.`);
         } catch (error) {
-            console.error(`[${botName}] Join failed: ${error.message}`);
-            await page.screenshot({ path: `test-results/fail-${botName}.png` });
-            throw new Error(`Bot ${i} could not join after retries.`);
+            console.error(`[${botName}] ❌ Join failed: ${error.message}`);
+            await page.screenshot({ path: `test-results/fail-${botName}.png` }).catch(e => console.error(`[${botName}] Screenshot failed: ${e.message}`));
+            throw new Error(`Bot ${i} could not join after retries. Reason: ${error.message}`);
         }
 
         if (isJoined) {

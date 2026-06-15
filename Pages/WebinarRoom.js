@@ -56,14 +56,18 @@ class WebinarRoom {
                 await this.fullNameField.fill(name);
                 await this.emailField.fill(email);
                 await this.page.keyboard.press('Enter');
+                console.log(`[${botLabel}] Attempt ${attempt}: URL navigating...`);
                 await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 60000 });
+                console.log(`[${botLabel}] Attempt ${attempt}: URL reached — waiting for room to configure...`);
 
                 // Wait for "Configuring webinar room" loading overlay to clear
                 const configuringOverlay = this.page.locator('text=/configuring webinar room/i, text=/setting up/i, text=/loading/i, .loader, .loading-overlay, .spinner').first();
-                await configuringOverlay.waitFor({ state: 'hidden', timeout: 90000 }).catch(() => {});
+                const overlayCleared = await configuringOverlay.waitFor({ state: 'hidden', timeout: 90000 }).then(() => true).catch(() => false);
+                console.log(`[${botLabel}] Attempt ${attempt}: configuring overlay cleared=${overlayCleared}`);
 
                 // Extra safety — wait until chat tab or main room UI is actually visible
-                await this.chatTab.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
+                const chatReady = await this.chatTab.waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
+                console.log(`[${botLabel}] Attempt ${attempt}: chatTab visible=${chatReady}`);
 
                 if (await this.soundOverlay.isVisible().catch(() => false)) {
                     await this.soundOverlay.click({ force: true });
