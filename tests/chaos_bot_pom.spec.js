@@ -31,22 +31,21 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
         // =====================================================================
         try {
             const staggerDelay = SMOKE_MODE ? 500 : i * 3000;
-            console.log(`[${botName}] Queueing. Waiting ${staggerDelay / 1000}s...`);
+            console.log(`[BOT-${i}] ▶ STARTING | name="${botName}" | stagger=${staggerDelay / 1000}s`);
             await page.waitForTimeout(staggerDelay);
 
-            console.log(`[${botName}] Join sequence started...`);
             await webinar.joinWebinar(attendeeUrl, botName, botEmail, {
-                maxRetries: 2,
+                maxRetries: 3,
                 retryDelayMs: 5000,
                 testInfo,
                 botLabel: `Bot-${i}`
             });
 
             isJoined = true;
-            console.log(`[${botName}] Successfully joined.`);
+            console.log(`[BOT-${i}] ✅ JOINED | ${botName}`);
         } catch (error) {
-            console.error(`[${botName}] ❌ Join failed: ${error.message}`);
-            await page.screenshot({ path: `test-results/fail-${botName}.png` }).catch(e => console.error(`[${botName}] Screenshot failed: ${e.message}`));
+            console.error(`[BOT-${i}] ❌ FAILED TO JOIN | ${botName} | reason: ${error.message}`);
+            await page.screenshot({ path: `test-results/fail-bot-${i}.png` }).catch(e => console.error(`[BOT-${i}] Screenshot failed: ${e.message}`));
             throw new Error(`Bot ${i} could not join after retries. Reason: ${error.message}`);
         }
 

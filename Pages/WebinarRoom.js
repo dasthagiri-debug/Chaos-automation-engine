@@ -44,7 +44,7 @@ class WebinarRoom {
 
     async joinWebinar(url, name, email, options = {}) {
         const {
-            maxRetries = 2,
+            maxRetries = 3,
             retryDelayMs = 5000,
             testInfo,
             botLabel = name
@@ -52,17 +52,18 @@ class WebinarRoom {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                // Generate a fresh email per attempt to avoid ERR_TOO_MANY_REDIRECTS
-                // when the server sees a previously-registered email and redirect-loops
+                // Fresh email per attempt to avoid ERR_TOO_MANY_REDIRECTS on retry
                 const attemptEmail = attempt > 1
                     ? email.replace('@', `_r${attempt}@`)
                     : email;
 
+                console.log(`[${botLabel}] ⏳ Attempt ${attempt}/${maxRetries}: navigating to room... (email: ${attemptEmail})`);
                 await this.page.setViewportSize({ width: 1920, height: 1080 });
                 await this.page.goto(url, { waitUntil: 'domcontentloaded' });
 
-                // Wait for form to be ready before filling
+                // Wait for registration form
                 await this.fullNameField.waitFor({ state: 'visible', timeout: 30000 });
+                console.log(`[${botLabel}] Attempt ${attempt}: form visible, filling details...`);
                 await this.fullNameField.fill(name);
                 await this.emailField.fill(attemptEmail);
 
@@ -74,37 +75,48 @@ class WebinarRoom {
                     await this.emailField.press('Enter');
                 }
 
-                console.log(`[${botLabel}] Attempt ${attempt}: form submitted — waiting for navigation... (email: ${attemptEmail})`);
+                console.log(`[${botLabel}] Attempt ${attempt}: form submitted, waiting for URL redirect...`);
                 await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 120000 });
-                console.log(`[${botLabel}] Attempt ${attempt}: URL reached — waiting for room to configure...`);
+                console.log(`[${botLabel}] Attempt ${attempt}: URL reached, waiting for room UI...`);
 
-                // Wait for "Configuring webinar room" loading overlay to clear
-                const configuringOverlay = this.page.locator('text=/configuring webinar room/i, text=/setting up/i, text=/loading/i, .loader, .loading-overlay, .spinner').first();
-                const overlayCleared = await configuringOverlay.waitFor({ state: 'hidden', timeout: 90000 }).then(() => true).catch(() => false);
-                console.log(`[${botLabel}] Attempt ${attempt}: configuring overlay cleared=${overlayCleared}`);
+                // Wait for configuring overlay to disappear — use separate locators to avoid
+                // broken mixed text=/css selector syntax (non-existent elements resolve hidden instantly)
+                const overlayByText = this.page.getByText(/configuring webinar room/i).first();
+                const overlayByCss = this.page.locator('.loader, .loading-overlay, .spinner, [class*="loading-"], [class*="configuring"]').first();
 
-                // Extra safety — wait until chat tab or main room UI is actually visible
-                const chatReady = await this.chatTab.waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
+                const overlayTextGone = await overlayByText.waitFor({ state: 'hidden', timeout: 90000 }).then(() => true).catch(() => true);
+                const overlayCssGone = await overlayByCss.waitFor({ state: 'hidden', timeout: 30000 }).then(() => true).catch(() => true);
+                console.log(`[${botLabel}] Attempt ${attempt}: overlay cleared — text=${overlayTextGone}, css=${overlayCssGone}`);
+
+                // Chat tab visibility is the definitive signal that the room is ready
+                const chatReady = await this.chatTab.waitFor({ state: 'visible', timeout: 45000 }).then(() => true).catch(() => false);
                 console.log(`[${botLabel}] Attempt ${attempt}: chatTab visible=${chatReady}`);
+
+                if (!chatReady) {
+                    // Room UI never appeared — likely still stuck on overlay; force a retry
+                    throw new Error(`Room UI not ready — chatTab never appeared after overlay wait (attempt ${attempt})`);
+                }
 
                 if (await this.soundOverlay.isVisible().catch(() => false)) {
                     await this.soundOverlay.click({ force: true });
                 }
 
+                console.log(`[${botLabel}] ✅ JOIN SUCCESS (attempt ${attempt})`);
                 return;
             } catch (error) {
                 const description = `${botLabel} join attempt ${attempt}/${maxRetries} failed: ${error.message}`;
+                console.warn(`[${botLabel}] ⚠️ Attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+
                 if (testInfo) {
-                    testInfo.annotations.push({
-                        type: 'join-failure',
-                        description
-                    });
+                    testInfo.annotations.push({ type: 'join-failure', description });
                 }
 
                 if (attempt === maxRetries) {
+                    console.error(`[${botLabel}] ❌ JOIN FAILED after ${maxRetries} attempts: ${error.message}`);
                     throw new Error(`Join failed after ${maxRetries} attempts for ${botLabel}: ${error.message}`);
                 }
 
+                console.log(`[${botLabel}] 🔄 Retrying in ${retryDelayMs / 1000}s...`);
                 await this.page.waitForTimeout(retryDelayMs);
             }
         }
