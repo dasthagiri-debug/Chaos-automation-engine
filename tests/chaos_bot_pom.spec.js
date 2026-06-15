@@ -18,7 +18,10 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
         const runId = Date.now().toString(36).slice(-5);
         const botName = `Bot ${containerId}-${runId}-${i}`;
         const botEmail = `bot${containerId}_${runId}_${i}@test.com`;
-        const attendeeUrl = 'https://dasta133.easywebinar.live/live-event-161';
+        const attendeeUrl = process.env.BASE_URL || 'https://dasta133.easywebinar.live/live-event-161';
+        if (!process.env.BASE_URL) {
+            console.warn(`[Bot-${i}] BASE_URL not set, falling back to hardcoded URL.`);
+        }
         
         const webinar = new WebinarRoom(page);
         let isJoined = false;
