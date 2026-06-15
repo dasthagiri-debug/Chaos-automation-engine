@@ -52,13 +52,19 @@ class WebinarRoom {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
+                // Generate a fresh email per attempt to avoid ERR_TOO_MANY_REDIRECTS
+                // when the server sees a previously-registered email and redirect-loops
+                const attemptEmail = attempt > 1
+                    ? email.replace('@', `_r${attempt}@`)
+                    : email;
+
                 await this.page.setViewportSize({ width: 1920, height: 1080 });
                 await this.page.goto(url, { waitUntil: 'domcontentloaded' });
 
                 // Wait for form to be ready before filling
                 await this.fullNameField.waitFor({ state: 'visible', timeout: 30000 });
                 await this.fullNameField.fill(name);
-                await this.emailField.fill(email);
+                await this.emailField.fill(attemptEmail);
 
                 // Explicit submit button click; fall back to Enter if button not found
                 const submitVisible = await this.joinSubmitButton.isVisible().catch(() => false);
@@ -68,7 +74,7 @@ class WebinarRoom {
                     await this.emailField.press('Enter');
                 }
 
-                console.log(`[${botLabel}] Attempt ${attempt}: form submitted — waiting for navigation...`);
+                console.log(`[${botLabel}] Attempt ${attempt}: form submitted — waiting for navigation... (email: ${attemptEmail})`);
                 await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 120000 });
                 console.log(`[${botLabel}] Attempt ${attempt}: URL reached — waiting for room to configure...`);
 
