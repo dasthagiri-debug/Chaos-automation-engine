@@ -31,10 +31,10 @@ class WebinarRoom {
         this.questionDeleteButton = page.locator('.delete-popup-area button').filter({ hasText: /^Delete$/i }).first();
 
         // --- POLL & OFFER ELEMENTS ---
-        this.pollContainer = page.locator('div').filter({ hasText: 'Active Polls' }).last();
-        this.pollSubmitButton = page.getByRole('button', { name: /Submit/i });
-        this.offerContainer = page.locator('div').filter({ hasText: 'Active Offers' }).last();
-        this.offerActionElement = page.locator('button, a, img').last();
+        this.pollContainer = page.locator('div').filter({ hasText: /Active Poll|^Poll$/i }).last();
+        this.pollSubmitButton = this.pollContainer.getByRole('button', { name: /Submit/i });
+        this.offerContainer = page.locator('div').filter({ hasText: /Active Offer|^Offer$/i }).last();
+        this.offerActionElement = this.offerContainer.locator('button, a').first();
     }
 
     // =====================================================================
@@ -56,7 +56,14 @@ class WebinarRoom {
                 await this.fullNameField.fill(name);
                 await this.emailField.fill(email);
                 await this.page.keyboard.press('Enter');
-                await this.page.waitForURL(/\/live-room\/attendee\?/i, { timeout: 60000 });
+                await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 60000 });
+
+                // Wait for "Configuring webinar room" loading overlay to clear
+                const configuringOverlay = this.page.locator('text=/configuring webinar room/i, text=/setting up/i, text=/loading/i, .loader, .loading-overlay, .spinner').first();
+                await configuringOverlay.waitFor({ state: 'hidden', timeout: 90000 }).catch(() => {});
+
+                // Extra safety — wait until chat tab or main room UI is actually visible
+                await this.chatTab.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
 
                 if (await this.soundOverlay.isVisible().catch(() => false)) {
                     await this.soundOverlay.click({ force: true });
@@ -113,97 +120,68 @@ class WebinarRoom {
         }
         if (await this.askQuestionButton.isVisible()) {
             await this.askQuestionButton.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(() => {});
-            await this.askQuestionButton.evaluate(el => el.click()).catch(async () => await this.askQuestionButton.click({ force: true }));
-            await this.page.waitForTimeout(1000);
-            await this.questionInput.fill(questionText);
-            await this.submitQuestionButton.click();
+            await this.askQuestionButton.click({ force: true, timeout: 10000 }).catch(() => {});
+            await this.questionInput.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+            if (await this.questionInput.isVisible().catch(() => false)) {
+                await this.questionInput.fill(questionText);
+                await this.submitQuestionButton.click({ timeout: 10000 }).catch(() => {});
+            }
         }
     }
 
     async reactToMessage(messageElement) {
         await messageElement.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(() => {});
-        
-        await messageElement.evaluate(el => {
-            el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        }).catch(() => {});
-        
-        await messageElement.hover({ force: true }).catch(() => {});
-        await this.page.waitForTimeout(500); 
-        
-        const reactionBar = messageElement.locator('.emoji-reaction-bar');
-        const clapEmoji = reactionBar.locator('.emoji-btn').filter({ hasText: '👏' }).first();
-        
-        await clapEmoji.evaluate(el => el.click()).catch(async () => await clapEmoji.click({ force: true }));
+        // DOM confirmed: .emoji-reaction-bar > span.emoji-btn are always present inside .chat-action
+        const clapEmoji = messageElement.locator('.chat-action .emoji-reaction-bar .emoji-btn').filter({ hasText: '👏' }).first();
+        await clapEmoji.evaluate(el => el.click()).catch(async () => await clapEmoji.click({ force: true }).catch(() => {}));
     }
 
     async replyToMessage(messageElement, replyText) {
         await messageElement.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(() => {});
-        
-        await messageElement.dispatchEvent('mouseenter').catch(() => {});
-        await messageElement.hover({ force: true }).catch(() => {});
-        await this.page.waitForTimeout(500); 
-        
-        const replyBtn = messageElement.locator('a.reply-chat').first();
-        
-        await replyBtn.dispatchEvent('click').catch(async () => {
-            await replyBtn.evaluate(el => {
-                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                el.click();
-            });
-        });
-        
+        // DOM confirmed: a.reply-chat is always present inside .chat-action
+        const replyBtn = messageElement.locator('.chat-action a.reply-chat').first();
+        await replyBtn.evaluate(el => el.click()).catch(async () => await replyBtn.click({ force: true }).catch(() => {}));
         await this.page.waitForTimeout(1000);
-        
-        await this.chatInput.evaluate(el => el.focus()).catch(() => {});
-        await this.chatInput.click({ force: true }).catch(() => {}); 
+        await this.chatInput.click({ force: true }).catch(() => {});
         await this.chatInput.pressSequentially(replyText, { delay: 50 });
         await this.page.keyboard.press('Enter');
     }
 
     async deleteMessage(messageElement) {
-        if (!(await messageElement.isVisible().catch(() => false))) {
-            return;
-        }
+        if (!(await messageElement.isVisible().catch(() => false))) return;
 
         await messageElement.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(() => {});
-        
         await messageElement.dispatchEvent('mouseenter').catch(() => {});
         await messageElement.hover({ force: true }).catch(() => {});
-        await this.page.waitForTimeout(500); 
-        
+        await this.page.waitForTimeout(500);
+
         const deleteIcon = messageElement.locator('a.delete-chat').last();
-        
-        await deleteIcon.dispatchEvent('click').catch(async () => {
-            await deleteIcon.evaluate(el => {
-                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                el.click();
-            });
-        });
-        
-        await this.chatDeleteConfirmButton.waitFor({ state: 'attached', timeout: 5000 }).catch(() => {});
-        await this.chatDeleteConfirmButton.dispatchEvent('click').catch(async () => await this.chatDeleteConfirmButton.click({ force: true }));
+        const iconVisible = await deleteIcon.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+        if (!iconVisible) return;
+
+        await deleteIcon.dispatchEvent('click').catch(() => {});
+        const confirmVisible = await this.chatDeleteConfirmButton.waitFor({ state: 'attached', timeout: 5000 }).then(() => true).catch(() => false);
+        if (confirmVisible) await this.chatDeleteConfirmButton.dispatchEvent('click').catch(() => {});
     }
 
     async deleteQuestion(questionElement) {
+        const exists = await questionElement.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+        if (!exists) return;
         await questionElement.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(() => {});
-        
         await questionElement.evaluate(el => {
             el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
             el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         }).catch(() => {});
-        
         await questionElement.hover({ force: true }).catch(() => {});
         await this.page.waitForTimeout(500);
 
-        const crossBtn = questionElement.locator('div.items-start > button').first();
-        
-        await crossBtn.evaluate(node => node.click()).catch(async () => await crossBtn.click({ force: true }));
-        
-        await this.questionDeleteButton.waitFor({ state: 'attached', timeout: 5000 }).catch(() => {});
-        await this.questionDeleteButton.evaluate(el => el.click()).catch(async () => await this.questionDeleteButton.click({ force: true }));
+        const crossBtn = questionElement.locator('div.items-start > button, button.delete-question, button[aria-label*="delete" i], button[title*="delete" i]').first();
+        const crossVisible = await crossBtn.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+        if (!crossVisible) return;
+
+        await crossBtn.dispatchEvent('click').catch(() => {});
+        const confirmVisible = await this.questionDeleteButton.waitFor({ state: 'attached', timeout: 5000 }).then(() => true).catch(() => false);
+        if (confirmVisible) await this.questionDeleteButton.dispatchEvent('click').catch(() => {});
     }
 
     getQuestionByText(text) { return this.page.locator('div.mb-4.p-4').filter({ hasText: text }).first(); }
@@ -237,9 +215,11 @@ class WebinarRoom {
                 // FASTER RADAR: Check every 2 seconds instead of 5
                 await this.page.waitForTimeout(2000); 
 
-                if (await this.pollContainer.isVisible().catch(() => false)) {
+                const pollVisible = await this.pollContainer.isVisible().catch(() => false);
+                console.log(`[${botName}] [POLL] radar tick — visible: ${pollVisible}`);
+                if (pollVisible) {
                     const pollText = await this.pollContainer.innerText().catch(() => 'unknown');
-                    
+
                     if (answeredPolls.has(pollText)) continue;
 
                     // SCOPED LOCATOR: Only find radio buttons INSIDE the specific poll popup
@@ -248,16 +228,14 @@ class WebinarRoom {
 
                     if (radios.length > 0) {
                         const randomRadio = radios[Math.floor(Math.random() * radios.length)];
-                        
-                        // Scroll to it and wait for any UI slide-in animations to finish
-                        await randomRadio.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(()=>{});
-                        await this.page.waitForTimeout(500); 
 
-                        // Click the radio button
+                        await randomRadio.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+                        await randomRadio.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(()=>{});
+
                         await randomRadio.evaluate(el => el.click()).catch(async () => await randomRadio.click({force: true}));
                         await this.page.waitForTimeout(1000);
-                        
-                        // Click Submit
+
+                        await this.pollSubmitButton.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
                         await this.pollSubmitButton.evaluate(el => el.click()).catch(async () => await this.pollSubmitButton.click({force: true}));
                         
                         // Safely click back to the people tab to clear the screen
@@ -267,8 +245,9 @@ class WebinarRoom {
                         console.log(`[${botName}] [POLL] ✓ Voted successfully.`);
                     }
                 }
-            } catch (e) { 
-                if (e.message.includes('closed')) break; 
+            } catch (e) {
+                if (e.message.includes('closed')) break;
+                console.log(`[${botName}] [POLL] ⚠ monitor error: ${e.message}`);
             }
         }
     }
@@ -281,6 +260,7 @@ class WebinarRoom {
                 if (await this.offerContainer.isVisible().catch(() => false)) {
                     const offerText = await this.offerContainer.innerText().catch(() => 'unknown');
                     if (clickedOffers.has(offerText)) continue;
+                    await this.offerActionElement.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
                     const [newPage] = await Promise.all([
                         this.page.waitForEvent('popup', { timeout: 15000 }).catch(() => null),
                         this.offerActionElement.evaluate(el => el.click()).catch(async () => await this.offerActionElement.click({force: true}))

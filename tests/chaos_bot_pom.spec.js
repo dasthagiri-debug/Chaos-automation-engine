@@ -15,9 +15,10 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
     test(`Chaos Bot: Profile ${i} - Full Resilient Lifecycle`, async ({ page }, testInfo) => {
         
         const containerId = process.env.CONTAINER_ID || Math.floor(Math.random() * 90000) + 10000;
-        const botName = `Bot ${containerId}-${i}`;
-        const botEmail = `bot${containerId}_${i}@test.com`;
-        const attendeeUrl = 'https://dasta133.easywebinar.live/live-event-153';
+        const runId = Date.now().toString(36).slice(-5);
+        const botName = `Bot ${containerId}-${runId}-${i}`;
+        const botEmail = `bot${containerId}_${runId}_${i}@test.com`;
+        const attendeeUrl = 'https://dasta133.easywebinar.live/live-event-161';
         
         const webinar = new WebinarRoom(page);
         let isJoined = false;
@@ -100,7 +101,8 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
             // =====================================================================
             try {
                 await webinar.switchToChat();
-                const latestMsg = webinar.messageBox.first(); 
+                await page.waitForTimeout(1500);
+                const latestMsg = webinar.messageBox.first();
                 if (await latestMsg.isVisible()) {
                     await webinar.reactToMessage(latestMsg);
                     await webinar.replyToMessage(latestMsg, 'Agree with this! 🚀');
@@ -121,7 +123,7 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
             console.log(`[${botName}] ♾️ Entering Infinite Loop...`);
             
             while (await webinar.isInLiveRoom()) {
-                const waitTime = randomDelay(20000, 45000); 
+                const waitTime = randomDelay(8000, 15000);
                 console.log(`[${botName}] ⏳ Heartbeat: Standing by for ${Math.round(waitTime / 1000)}s...`);
                 await page.waitForTimeout(waitTime);
 
