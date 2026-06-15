@@ -10,6 +10,7 @@ class WebinarRoom {
         // --- JOIN/ENTRY ELEMENTS ---
         this.fullNameField = page.locator('input[placeholder*="Full Name" i], input[name*="name" i], input[type="text"]').first();
         this.emailField = page.locator('input[placeholder*="Email" i], input[type="email"], input[name*="email" i]').first();
+        this.joinSubmitButton = page.locator('button[type="submit"], input[type="submit"], button').filter({ hasText: /join|register|enter|submit|watch/i }).first();
         this.soundOverlay = page.getByText(/click for sound/i).first();
 
         // --- TAB NAVIGATION ---
@@ -53,11 +54,22 @@ class WebinarRoom {
             try {
                 await this.page.setViewportSize({ width: 1920, height: 1080 });
                 await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+
+                // Wait for form to be ready before filling
+                await this.fullNameField.waitFor({ state: 'visible', timeout: 30000 });
                 await this.fullNameField.fill(name);
                 await this.emailField.fill(email);
-                await this.page.keyboard.press('Enter');
-                console.log(`[${botLabel}] Attempt ${attempt}: URL navigating...`);
-                await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 60000 });
+
+                // Explicit submit button click; fall back to Enter if button not found
+                const submitVisible = await this.joinSubmitButton.isVisible().catch(() => false);
+                if (submitVisible) {
+                    await this.joinSubmitButton.click({ timeout: 10000 });
+                } else {
+                    await this.emailField.press('Enter');
+                }
+
+                console.log(`[${botLabel}] Attempt ${attempt}: form submitted — waiting for navigation...`);
+                await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 120000 });
                 console.log(`[${botLabel}] Attempt ${attempt}: URL reached — waiting for room to configure...`);
 
                 // Wait for "Configuring webinar room" loading overlay to clear
