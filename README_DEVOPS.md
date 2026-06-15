@@ -87,32 +87,34 @@ In your AWS ECS task definition, add the environment variable:
 
 ## Compute Resource Recommendations
 
-### For 5 Concurrent Headless Chromium Instances
+### For 40 Concurrent Headless Chromium Instances (default)
 
-Each headless Chromium browser requires significant resources. **Minimum recommended:**
+Each headless Chromium instance uses ~250–350 MB RAM under load. **Minimum recommended for 40 bots:**
 
 | Resource      | Requirement | Reasoning |
 |:---|:---|:---|
-| **vCPU**      | **1.0 vCPU** (1024 CPU units) | 5 Chromium processes × ~200 CPU units each under load |
-| **RAM**       | **2 GB** | 5 × 350–400 MB per browser + overhead |
-| **Ephemeral Storage** | **21 GB** | Default Fargate allocation (sufficient for Playwright artifacts) |
+| **vCPU**      | **4 vCPU** (4096 CPU units) | 40 Chromium processes × ~100 CPU units each |
+| **RAM**       | **16 GB** | 40 × ~300 MB per browser + 4 GB OS/Node overhead |
+| **Ephemeral Storage** | **21 GB** | Default Fargate allocation (sufficient) |
 
-### Scaling to 2,000 Bots
+> ⚠️ **Under-provisioning RAM is the #1 cause of low join rates.** If containers are given less than 16 GB for 40 bots, they will be OOM-killed by the kernel after only a few bots spawn. You will see far fewer bots join than expected.
 
-```
-Total Bots Needed: 2,000
-Bots per Container: 5
-Containers Required: 2,000 ÷ 5 = 400 tasks
-Compute per Task: 1 vCPU, 2 GB RAM
-Total Infrastructure: 400 vCPU, 800 GB RAM
-```
-
-### AWS Fargate Pricing Estimate (us-east-1, 45 min × 400 tasks)
+### Scaling to 400 Bots (10 containers × 40 bots)
 
 ```
-vCPU Cost:    400 vCPU × $0.04048/vCPU-hour × 0.75 hours = $12.14
-Memory Cost:  800 GB × $0.004445/GB-hour × 0.75 hours = $2.67
-Total ~$15 for complete load test (rough estimate, verify current pricing)
+Total Bots Needed: 400
+Bots per Container: 40
+Containers Required: 10 tasks
+Compute per Task: 4 vCPU, 16 GB RAM
+Total Infrastructure: 40 vCPU, 160 GB RAM
+```
+
+### AWS Fargate Pricing Estimate (us-east-1, 45 min × 10 tasks)
+
+```
+vCPU Cost:    40 vCPU × $0.04048/vCPU-hour × 0.75 hours = $1.21
+Memory Cost:  160 GB × $0.004445/GB-hour × 0.75 hours = $0.53
+Total ~$2 for complete load test (rough estimate, verify current pricing)
 ```
 
 ---
@@ -121,9 +123,10 @@ Total ~$15 for complete load test (rough estimate, verify current pricing)
 
 | Variable | Default | Purpose |
 |:---|:---|:---|
-| `CONTAINER_ID` | (required) | Unique identifier for bot naming (e.g., `12`) |
-| `BOT_COUNT` | `40` | Number of attendee bot profiles to execute in the chaos suite |
-| `PLAYWRIGHT_WORKERS` | `40` | Number of parallel workers (Chromium instances) |
+| `CONTAINER_ID` | (required) | Unique identifier for bot naming (e.g., `12`). Must be unique per ECS task. |
+| `BASE_URL` | (required) | Full URL of the live webinar registration page (e.g., `https://yoursite.easywebinar.live/live-event-123`). Without this, bots fall back to a hardcoded dev URL. |
+| `BOT_COUNT` | `40` | Number of attendee bots per container |
+| `PLAYWRIGHT_WORKERS` | `40` | Number of parallel Chromium workers (should equal `BOT_COUNT`) |
 
 ### Overriding BOT_COUNT and PLAYWRIGHT_WORKERS
 
@@ -134,25 +137,54 @@ Docker run example for local validation:
 ```bash
 docker run --rm \
   -e CONTAINER_ID=101 \
-  -e BOT_COUNT=25 \
-  -e PLAYWRIGHT_WORKERS=20 \
+  -e BASE_URL=https://yoursite.easywebinar.live/live-event-123 \
+  -e BOT_COUNT=40 \
+  -e PLAYWRIGHT_WORKERS=40 \
   automation:latest
 ```
 
-ECS deployment example:
+ECS task definition example:
 
 ```json
 {
-  "name": "CONTAINER_ID",
-  "value": "102"
+  "containerDefinitions": [{
+    "name": "playwright-bot",
+    "image": "YOUR_ECR_REPO/automation:latest",
+    "environment": [
+      { "name": "CONTAINER_ID",         "value": "1" },
+      { "name": "BASE_URL",             "value": "https://yoursite.easywebinar.live/live-event-123" },
+      { "name": "BOT_COUNT",            "value": "40" },
+      { "name": "PLAYWRIGHT_WORKERS",   "value": "40" }
+    ]
+  }]
 }
 ```
 
 Recommended guidance:
-- Keep `PLAYWRIGHT_WORKERS` less than or equal to `BOT_COUNT`.
-- Start with `BOT_COUNT=40` and `PLAYWRIGHT_WORKERS=40` for Fargate performance validation.
-- Launch ECS tasks with unique `CONTAINER_ID` values per task.
-- Reduce workers first if you observe OOM or CPU throttling.
+- Keep `PLAYWRIGHT_WORKERS` equal to `BOT_COUNT`.
+- Always set `BASE_URL` — bots will warn and use a hardcoded fallback URL if missing.
+- Always set a unique `CONTAINER_ID` per ECS task to prevent email collisions.
+- Reduce `BOT_COUNT` and `PLAYWRIGHT_WORKERS` first if you observe OOM or CPU throttling.
+
+---
+
+## CloudWatch Log Patterns
+
+Each bot emits structured log lines that are easy to filter in CloudWatch Logs Insights:
+
+| Log Pattern | Meaning |
+|:---|:---|
+| `[BOT-X] ▶ STARTING` | Bot X has started and is waiting for its stagger delay |
+| `[BOT-X] ✅ JOINED` | Bot X successfully entered the live room |
+| `[BOT-X] ❌ FAILED TO JOIN` | Bot X exhausted all 3 retry attempts — check the reason after the pipe |
+| `⚠️ Attempt N/3 failed:` | Individual retry failure — still has more attempts remaining |
+
+**Quick join success rate check (CloudWatch Logs Insights):**
+```
+fields @message
+| filter @message like /JOINED|FAILED TO JOIN/
+| stats count(*) by @message
+```
 
 ---
 
@@ -160,10 +192,13 @@ Recommended guidance:
 
 | Issue | Solution |
 |:---|:---|
-| "Email already registered" errors | Verify each task has a unique `CONTAINER_ID` |
-| Out of memory (OOM) | Reduce `PLAYWRIGHT_WORKERS` or increase RAM allocation |
-| Tests timeout | Increase `timeout` in `playwright.config.js` (currently 45 min) |
-| Reports not generated | Check CloudWatch logs for Playwright errors |
+| Far fewer bots joining than expected (e.g. 42/400) | **OOM** — increase ECS task RAM to 16 GB for 40 bots. Check CloudWatch for exit code 137 or "OutOfMemory" stop reason. |
+| `❌ FAILED TO JOIN` with `waitForURL: Timeout` | Room URL never loaded — bot waited 120s. Check if the webinar is live and `BASE_URL` is correct. |
+| `❌ FAILED TO JOIN` with `ERR_TOO_MANY_REDIRECTS` | Server redirect loop on registration — bot handles this via email suffix (`_r2`, `_r3`) on retries. If persisting, check EasyWebinar attendee limits. |
+| `❌ FAILED TO JOIN` with `Room UI not ready` | Bot reached the room URL but chat tab never appeared — EasyWebinar "configuring" overlay didn't clear. May indicate server overload. |
+| `[BOT-X] BASE_URL not set` | `BASE_URL` env var missing. Set it in ECS task definition. |
+| "Email already registered" errors | Verify each ECS task has a unique `CONTAINER_ID` |
+| Tests timeout after 45 min | Increase `timeout` in `playwright.config.js` if longer sessions needed |
 
 ---
 
@@ -208,6 +243,6 @@ For AWS ECS Fargate: https://docs.aws.amazon.com/ecs/latest/developerguide/launc
 
 ---
 
-**Last Updated:** 2026-05-13  
-**Image Version:** `mcr.microsoft.com/playwright:v1.43.0-jammy`  
+**Last Updated:** 2026-06-15  
+**Image Version:** `mcr.microsoft.com/playwright:v1.58.2-jammy`  
 **Test Timeout:** 45 minutes
