@@ -26,6 +26,19 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
         const webinar = new WebinarRoom(page);
         let isJoined = false;
 
+        // Connection tracing — surfaces socket drops and server-side redirects in logs
+        // so we can correlate missed poll clicks with server-side events.
+        page.on('websocket', ws => {
+            console.log(`[${botName}] [BOT SOCKET OPEN] ${ws.url()}`);
+            ws.on('close', () => console.log(`[${botName}] [BOT SOCKET CLOSED] ${ws.url()}`));
+            ws.on('socketerror', err => console.log(`[${botName}] [BOT SOCKET ERROR] ${ws.url()} — ${err}`));
+        });
+        page.on('framenavigated', frame => {
+            if (frame === page.mainFrame()) {
+                console.log(`[${botName}] [BOT REDIRECT/RELOAD] → ${frame.url()}`);
+            }
+        });
+
         // =====================================================================
         // PHASE 1: RESILIENT JOIN & STAGGERED ENTRY
         // =====================================================================
@@ -120,9 +133,11 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
             // =====================================================================
             // PHASE 7: INFINITE OMNI-ENGAGEMENT LOOP
             // =====================================================================
-            const willPoll = Math.random() < 0.5;
+            // All bots answer polls — previously 50% had poll monitoring disabled,
+            // causing near-zero poll responses even with hundreds of bots in the room.
+            // Offers kept at 50% since offer clicks open popups and are non-critical.
             const willOffer = Math.random() < 0.5;
-            webinar.startBackgroundMonitors(botName, willPoll, willOffer);
+            webinar.startBackgroundMonitors(botName, true, willOffer);
 
             const chatMessages = ["That makes sense.", "Great point!", "Love this! 🚀", "🔥", "Agreed."];
             const qaQuestions = ["How does this scale?", "Will slides be shared?", "Any doc links?"];

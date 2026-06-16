@@ -220,7 +220,26 @@ class WebinarRoom {
 
     getQuestionByText(text) { return this.page.locator('div.mb-4.p-4').filter({ hasText: text }).first(); }
     getMessageByText(text) { return this.page.locator('.flex.message-box').filter({ hasText: text }).last(); }
-    isInLiveRoom() { return this.page.url().includes('live-room'); }
+
+    // Robust room presence check: confirms the URL still contains live-room AND the page
+    // hasn't errored out. A brief WebSocket-triggered state change (co-host join, poll push)
+    // can cause a transient URL flicker — we verify twice with a small gap before concluding
+    // the bot has actually left, preventing false exits that dropped 395→219 previously.
+    async isInLiveRoom() {
+        try {
+            if (this.page.isClosed()) return false;
+            const url = this.page.url();
+            if (!url.includes('live-room')) {
+                // Transient flicker guard: wait 2s and re-check before giving up
+                await this.page.waitForTimeout(2000);
+                if (this.page.isClosed()) return false;
+                return this.page.url().includes('live-room');
+            }
+            return true;
+        } catch {
+            return false;
+        }
+    }
 
     // =====================================================================
     // BACKGROUND MONITORS (POLLS & OFFERS)
@@ -244,41 +263,47 @@ class WebinarRoom {
 
     async _monitorPolls(botName) {
         const answeredPolls = new Set();
-        while (!this.page.isClosed() && this.isInLiveRoom()) {
+        while (!this.page.isClosed() && await this.isInLiveRoom()) {
             try {
-                // FASTER RADAR: Check every 2 seconds instead of 5
-                await this.page.waitForTimeout(2000); 
+                await this.page.waitForTimeout(2000);
 
                 const pollVisible = await this.pollContainer.isVisible().catch(() => false);
                 console.log(`[${botName}] [POLL] radar tick — visible: ${pollVisible}`);
-                if (pollVisible) {
-                    const pollText = await this.pollContainer.innerText().catch(() => 'unknown');
+                if (!pollVisible) continue;
 
-                    if (answeredPolls.has(pollText)) continue;
+                const pollText = await this.pollContainer.innerText().catch(() => 'unknown');
+                if (answeredPolls.has(pollText)) continue;
 
-                    // SCOPED LOCATOR: Only find radio buttons INSIDE the specific poll popup
-                    const scopedRadios = this.pollContainer.getByRole('radio');
-                    const radios = await scopedRadios.all();
+                const scopedRadios = this.pollContainer.getByRole('radio');
+                const radios = await scopedRadios.all();
+                if (radios.length === 0) continue;
 
-                    if (radios.length > 0) {
-                        const randomRadio = radios[Math.floor(Math.random() * radios.length)];
+                const randomRadio = radios[Math.floor(Math.random() * radios.length)];
+                await randomRadio.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+                await randomRadio.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(() => {});
+                await randomRadio.evaluate(el => el.click()).catch(async () => await randomRadio.click({ force: true }));
+                await this.page.waitForTimeout(1000);
 
-                        await randomRadio.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-                        await randomRadio.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' })).catch(()=>{});
+                // Wait for submit button to mount after dynamic overlay renders, then force-click
+                // to bypass any animation/layout re-render that intercepts the hit target.
+                const submitReady = await this.pollSubmitButton
+                    .waitFor({ state: 'visible', timeout: 20000 })
+                    .then(() => true)
+                    .catch(() => false);
 
-                        await randomRadio.evaluate(el => el.click()).catch(async () => await randomRadio.click({force: true}));
-                        await this.page.waitForTimeout(1000);
-
-                        await this.pollSubmitButton.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-                        await this.pollSubmitButton.evaluate(el => el.click()).catch(async () => await this.pollSubmitButton.click({force: true}));
-                        
-                        // Safely click back to the people tab to clear the screen
-                        await this.peopleTab.evaluate(el => el.click()).catch(async () => await this.peopleTab.click({force: true}));
-                        
-                        answeredPolls.add(pollText);
-                        console.log(`[${botName}] [POLL] ✓ Voted successfully.`);
-                    }
+                if (submitReady) {
+                    await this.pollSubmitButton
+                        .evaluate(el => el.click())
+                        .catch(async () => await this.pollSubmitButton.click({ force: true }));
+                    console.log(`[${botName}] [POLL] ✓ Voted successfully.`);
+                } else {
+                    // Submit button never appeared — retry on next radar tick
+                    console.log(`[${botName}] [POLL] ⚠ Submit button did not appear, will retry next tick.`);
+                    continue;
                 }
+
+                await this.peopleTab.evaluate(el => el.click()).catch(async () => await this.peopleTab.click({ force: true }));
+                answeredPolls.add(pollText);
             } catch (e) {
                 if (e.message.includes('closed')) break;
                 console.log(`[${botName}] [POLL] ⚠ monitor error: ${e.message}`);
@@ -288,7 +313,7 @@ class WebinarRoom {
 
     async _monitorOffers(botName) {
         const clickedOffers = new Set();
-        while (!this.page.isClosed() && this.isInLiveRoom()) {
+        while (!this.page.isClosed() && await this.isInLiveRoom()) {
             try {
                 await this.page.waitForTimeout(5000);
                 if (await this.offerContainer.isVisible().catch(() => false)) {
