@@ -68,5 +68,5 @@ jobs:
               }"
 
             echo "Task $i submitted."
-            sleep 5
+            sleep 15
           done

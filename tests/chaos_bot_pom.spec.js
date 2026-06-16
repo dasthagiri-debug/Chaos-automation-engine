@@ -30,8 +30,13 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
         // PHASE 1: RESILIENT JOIN & STAGGERED ENTRY
         // =====================================================================
         try {
-            const staggerDelay = SMOKE_MODE ? 500 : i * 3000;
-            console.log(`[BOT-${i}] ▶ STARTING | name="${botName}" | stagger=${staggerDelay / 1000}s`);
+            // Global stagger: each container waits 30s × (CONTAINER_ID - 1) before its first
+            // bot fires, then bots within it space 1.5s apart.
+            // Result: ~1 bot joins per 1.5s across all 10 containers — ~6-minute ramp for 400 bots.
+            // Without this, all containers start simultaneously and 10 bots collide every 3s.
+            const containerOffset = SMOKE_MODE ? 0 : (parseInt(containerId) - 1) * 30000;
+            const staggerDelay = SMOKE_MODE ? 500 : containerOffset + (i * 1500);
+            console.log(`[BOT-${i}] ▶ STARTING | name="${botName}" | container_offset=${containerOffset / 1000}s | bot_delay=${(i * 1500) / 1000}s | total_stagger=${staggerDelay / 1000}s`);
             await page.waitForTimeout(staggerDelay);
 
             await webinar.joinWebinar(attendeeUrl, botName, botEmail, {

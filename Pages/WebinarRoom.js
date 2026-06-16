@@ -44,8 +44,8 @@ class WebinarRoom {
 
     async joinWebinar(url, name, email, options = {}) {
         const {
-            maxRetries = 3,
-            retryDelayMs = 5000,
+            maxRetries = 4,
+            retryDelayMs = 8000,
             testInfo,
             botLabel = name
         } = options;
@@ -59,10 +59,10 @@ class WebinarRoom {
 
                 console.log(`[${botLabel}] ⏳ Attempt ${attempt}/${maxRetries}: navigating to room... (email: ${attemptEmail})`);
                 await this.page.setViewportSize({ width: 1920, height: 1080 });
-                await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+                await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
                 // Wait for registration form
-                await this.fullNameField.waitFor({ state: 'visible', timeout: 30000 });
+                await this.fullNameField.waitFor({ state: 'visible', timeout: 45000 });
                 console.log(`[${botLabel}] Attempt ${attempt}: form visible, filling details...`);
                 await this.fullNameField.fill(name);
                 await this.emailField.fill(attemptEmail);
@@ -76,7 +76,7 @@ class WebinarRoom {
                 }
 
                 console.log(`[${botLabel}] Attempt ${attempt}: form submitted, waiting for URL redirect...`);
-                await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 120000 });
+                await this.page.waitForURL(/\/live-room\/attendee/i, { timeout: 180000 });
                 console.log(`[${botLabel}] Attempt ${attempt}: URL reached, waiting for room UI...`);
 
                 // Wait for configuring overlay to disappear — use separate locators to avoid
@@ -84,12 +84,12 @@ class WebinarRoom {
                 const overlayByText = this.page.getByText(/configuring webinar room/i).first();
                 const overlayByCss = this.page.locator('.loader, .loading-overlay, .spinner, [class*="loading-"], [class*="configuring"]').first();
 
-                const overlayTextGone = await overlayByText.waitFor({ state: 'hidden', timeout: 90000 }).then(() => true).catch(() => true);
-                const overlayCssGone = await overlayByCss.waitFor({ state: 'hidden', timeout: 30000 }).then(() => true).catch(() => true);
+                const overlayTextGone = await overlayByText.waitFor({ state: 'hidden', timeout: 120000 }).then(() => true).catch(() => true);
+                const overlayCssGone = await overlayByCss.waitFor({ state: 'hidden', timeout: 45000 }).then(() => true).catch(() => true);
                 console.log(`[${botLabel}] Attempt ${attempt}: overlay cleared — text=${overlayTextGone}, css=${overlayCssGone}`);
 
                 // Chat tab visibility is the definitive signal that the room is ready
-                const chatReady = await this.chatTab.waitFor({ state: 'visible', timeout: 45000 }).then(() => true).catch(() => false);
+                const chatReady = await this.chatTab.waitFor({ state: 'visible', timeout: 60000 }).then(() => true).catch(() => false);
                 console.log(`[${botLabel}] Attempt ${attempt}: chatTab visible=${chatReady}`);
 
                 if (!chatReady) {
