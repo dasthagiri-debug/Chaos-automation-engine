@@ -133,11 +133,11 @@ for (let i = 1; i <= TOTAL_BOTS; i++) {
             // =====================================================================
             // PHASE 7: INFINITE OMNI-ENGAGEMENT LOOP
             // =====================================================================
-            // All bots answer polls — previously 50% had poll monitoring disabled,
-            // causing near-zero poll responses even with hundreds of bots in the room.
-            // Offers kept at 50% since offer clicks open popups and are non-critical.
+            // 60% of bots answer polls to simulate realistic human engagement.
+            // 50% click offers (non-critical, opens popups).
+            const willPoll = Math.random() < 0.6;
             const willOffer = Math.random() < 0.5;
-            webinar.startBackgroundMonitors(botName, true, willOffer);
+            webinar.startBackgroundMonitors(botName, willPoll, willOffer);
 
             const chatMessages = ["That makes sense.", "Great point!", "Love this! 🚀", "🔥", "Agreed."];
             const qaQuestions = ["How does this scale?", "Will slides be shared?", "Any doc links?"];
