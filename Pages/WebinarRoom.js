@@ -262,7 +262,10 @@ class WebinarRoom {
     }
 
     async _monitorPolls(botName) {
-        const answeredPolls = new Set();
+        // Map<pollText, lastAnsweredMs> — allows re-answering the same poll if
+        // the host re-publishes it after >60s (a plain Set would block it forever).
+        const answeredPolls = new Map();
+        const POLL_COOLDOWN_MS = 60000;
         while (!this.page.isClosed() && await this.isInLiveRoom()) {
             try {
                 await this.page.waitForTimeout(2000);
@@ -272,7 +275,8 @@ class WebinarRoom {
                 if (!pollVisible) continue;
 
                 const pollText = await this.pollContainer.innerText().catch(() => 'unknown');
-                if (answeredPolls.has(pollText)) continue;
+                const lastAnswered = answeredPolls.get(pollText);
+                if (lastAnswered && (Date.now() - lastAnswered) < POLL_COOLDOWN_MS) continue;
 
                 const scopedRadios = this.pollContainer.getByRole('radio');
                 const radios = await scopedRadios.all();
@@ -303,7 +307,7 @@ class WebinarRoom {
                 }
 
                 await this.peopleTab.evaluate(el => el.click()).catch(async () => await this.peopleTab.click({ force: true }));
-                answeredPolls.add(pollText);
+                answeredPolls.set(pollText, Date.now());
             } catch (e) {
                 if (e.message.includes('closed')) break;
                 console.log(`[${botName}] [POLL] ⚠ monitor error: ${e.message}`);
@@ -312,13 +316,17 @@ class WebinarRoom {
     }
 
     async _monitorOffers(botName) {
-        const clickedOffers = new Set();
+        // Map<offerText, lastClickedMs> — same cooldown pattern as polls so
+        // re-published offers are clicked again after >60s.
+        const clickedOffers = new Map();
+        const OFFER_COOLDOWN_MS = 60000;
         while (!this.page.isClosed() && await this.isInLiveRoom()) {
             try {
                 await this.page.waitForTimeout(5000);
                 if (await this.offerContainer.isVisible().catch(() => false)) {
                     const offerText = await this.offerContainer.innerText().catch(() => 'unknown');
-                    if (clickedOffers.has(offerText)) continue;
+                    const lastClicked = clickedOffers.get(offerText);
+                    if (lastClicked && (Date.now() - lastClicked) < OFFER_COOLDOWN_MS) continue;
                     await this.offerActionElement.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
                     const [newPage] = await Promise.all([
                         this.page.waitForEvent('popup', { timeout: 15000 }).catch(() => null),
@@ -326,7 +334,7 @@ class WebinarRoom {
                     ]);
                     if (newPage) await newPage.close().catch(()=>{});
                     await this.peopleTab.evaluate(el => el.click()).catch(async () => await this.peopleTab.click({force: true}));
-                    clickedOffers.add(offerText);
+                    clickedOffers.set(offerText, Date.now());
                     console.log(`[${botName}] [OFFER] ✓ Clicked.`);
                 }
             } catch (e) { if (e.message.includes('closed')) break; }
